@@ -18,39 +18,39 @@ from rclpy.qos import QoSReliabilityPolicy, QoSProfile, QoSHistoryPolicy,Durabil
 import math
 
 
-class VelocityReceiver(Node):
+class DistanceVerifier(Node):
     def __init__(self):
-        super().__init__("velocity_receiver")
-        self.declare_parameter("angle", rclpy.Parameter.Type.DOUBLE)
+        super().__init__("distance_verifier")
+        # self.declare_parameter("angle", rclpy.Parameter.Type.DOUBLE)
 
-        self.carla_info_subscription = self.create_subscription(
+        self.yabloc_path_subscription = self.create_subscription(
             CarlaEgoVehicleInfo,
-            "/carla/ego_vehicle/vehicle_info",
-            self.carla_info_listener_callback,
+            "/localization/validation/path/pf",
+            self.yabloc_path_listener_callback,
             QoSProfile(
                 depth=10,
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             ),
 
         )
-        self.carla_status_subscription = self.create_subscription(
+        self.carla_path_subscription = self.create_subscription(
             CarlaEgoVehicleStatus,
-            "/carla/ego_vehicle/vehicle_status",
-            self.carla_status_listener_callback,
+            "/groundtruth_pose",
+            self.carla_path_listener_callback,
             1,
         )
 
-        self.init_publisher = self.create_publisher(
-            VelocityReport,
-            "/vehicle/status/velocity_status",
-            QoSProfile(
-                depth=10,
-                durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            ),
-        )
+        # self.init_publisher = self.create_publisher(
+        #     VelocityReport,
+        #     "/vehicle/status/velocity_status",
+        #     QoSProfile(
+        #         depth=10,
+        #         durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        #     ),
+        # )
 
-        self.vehicle_status = None
-        self.vehicle_info = None
+        self.groundtruth = None
+        self.prediction = None
         self.steer = 0.0
         self.stamped_time = None
         self.out_report = None
@@ -59,14 +59,12 @@ class VelocityReceiver(Node):
         timer_period = 0.1
         self.timer = self.create_timer(timer_period, self.timer_callback)
 
-    def carla_info_listener_callback(self, msg):
-        self.get_logger().info("try to catch vehicle info message from carla")
-        self.vehicle_info = msg
-        self.update_vehicle_report()
-    def carla_status_listener_callback(self,msg):
-        self.get_logger().info("try to catch vehicle status message from carla")
-        self.vehicle_status = msg
-        self.update_vehicle_report()
+    def yabloc_path_listener_callback(self, msg):
+        self.get_logger().info("catching prediction path from yabloc")
+        self.prediction = msg
+    def carla_path_listener_callback(self,msg):
+        self.get_logger().info("catching ground truth path form rosbag")
+        self.groundtruth = msg
 
     def timer_callback(self):
         if self.out_report is not None:
@@ -101,10 +99,10 @@ class VelocityReceiver(Node):
 
 def main():
     rclpy.init()
-    velocity_receiver = VelocityReceiver()
+    distance_verifier = DistanceVerifier()
 
-    rclpy.spin(velocity_receiver)
-    velocity_receiver.destroy_node()
+    rclpy.spin(distance_verifier)
+    distance_verifier.destroy_node()
     rclpy.shutdown()
 
 
