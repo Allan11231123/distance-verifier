@@ -11,12 +11,14 @@ from geometry_msgs.msg import (
     TransformStamped,
     Quaternion,
 )
-
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
 from autoware_auto_vehicle_msgs.msg import VelocityReport
 from carla_msgs.msg import CarlaEgoVehicleInfo,CarlaEgoVehicleStatus
 from rclpy.qos import QoSReliabilityPolicy, QoSProfile, QoSHistoryPolicy,DurabilityPolicy
 import math
-
+import matplotlib.pyplot as plt
+import numpy as np
 
 class DistanceVerifier(Node):
     def __init__(self):
@@ -40,62 +42,68 @@ class DistanceVerifier(Node):
             1,
         )
 
-        # self.init_publisher = self.create_publisher(
-        #     VelocityReport,
-        #     "/vehicle/status/velocity_status",
-        #     QoSProfile(
-        #         depth=10,
-        #         durability=DurabilityPolicy.TRANSIENT_LOCAL,
-        #     ),
-        # )
+        self.image_publisher = self.create_publisher(
+            Image,
+            "/difference_report",
+            QoSProfile(
+                depth=10,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
+        )
+
 
         self.groundtruth = None
         self.prediction = None
-        self.steer = 0.0
-        self.stamped_time = None
-        self.out_report = None
-        
+        self.difference = None
+        self.image = None
+        self.bridge = CvBridge()
+        self.differences = []
+        self.clock = 0
+        self.time = []
 
         timer_period = 0.1
         self.timer = self.create_timer(timer_period, self.timer_callback)
 
     def yabloc_path_listener_callback(self, msg):
-        self.get_logger().info("catching prediction path from yabloc")
-        self.prediction = msg
+        self.get_logger().info("catching prediction path position from yabloc")
+        self.prediction = msg.pose.position
+        self.update_path_position()
     def carla_path_listener_callback(self,msg):
-        self.get_logger().info("catching ground truth path form rosbag")
-        self.groundtruth = msg
+        self.get_logger().info("catching ground truth path position form rosbag")
+        self.groundtruth = msg.pose.position
+        self.update_path_position()
 
     def timer_callback(self):
-        if self.out_report is not None:
-            self.init_publisher.publish(self.out_report)
-
-    def update_vehicle_report(self):
-        if self.vehicle_status is None or self.vehicle_info is None:
-            return
-        veh_report = VelocityReport()
-        veh_report.longitudinal_velocity = self.vehicle_status.velocity
-        veh_report.lateral_velocity = 0.0
-        veh_report.heading_rate = self.compute_heading()
-        self.out_report = veh_report
-
-    def compute_heading(self):
-        time_s = self.vehicle_status.header.stamp.sec
-        time_ns = self.vehicle_status.header.stamp.nanosec
-        time = time_s + time_ns*(10**(-9))
-        if self.stamped_time is None:
-            self.stamped_time = time
-            return 0.0
-
-        wheel0_info = self.vehicle_info.wheels[0]
-        max_angle = wheel0_info.max_steer_angle
-        steering = self.vehicle_status.control.steer
-        rad = math.radians((max_angle/2)*steering)
         
-        result = (rad-self.steer)/(time-self.stamped_time)
-        self.steer = rad
-        self.stamped_time = time
-        return result
+        if self.image is not None:
+            self.image_publisher.publish(self.out_report)
+
+    def calculate_difference(self):
+        x_diff = self.prediction.x - self.groundtruth.x
+        y_diff = self.prediction.y - self.groundtruth.y
+        z_diff = self.prediction.z - self.groundtruth.z
+        return (x_diff**2 + y_diff**2 + z_diff**2)**(1/2)
+    
+    def generate_report_image(self):
+        fig, ax = plt.subplot()
+        ax.plot(self.time,self.differences)
+        fig.canvas.draw()
+        buf = fig.canvas.tostring_rgb()
+        cols, rows = fig.canvas.get_width_height()
+        image = np.frombuffer(buf,dtype=np.int8).reshape(rows,cols,3)
+        self.image = self.bridge.cv2_to_imgmsg(image,"bgr8")
+        
+    def update_path_position(self):
+        if self.groundtruth is None or self.prediction is None:
+            return
+        if self.difference == self.calculate_difference(): 
+            return
+        else:
+            self.difference = self.calculate_difference()
+            self.differences.append(self.difference)
+            self.clock+=1
+            self.time.append(self.clock)
+
 
 def main():
     rclpy.init()
