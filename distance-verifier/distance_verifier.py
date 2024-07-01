@@ -6,6 +6,7 @@ from geometry_msgs.msg import (
     PoseWithCovarianceStamped,
     PoseWithCovariance,
     Pose,
+    PoseStamped,
     Twist,
     Transform,
     TransformStamped,
@@ -13,7 +14,7 @@ from geometry_msgs.msg import (
 )
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
-from autoware_auto_vehicle_msgs.msg import VelocityReport
+# from autoware_auto_vehicle_msgs.msg import VelocityReport
 from carla_msgs.msg import CarlaEgoVehicleInfo,CarlaEgoVehicleStatus
 from rclpy.qos import QoSReliabilityPolicy, QoSProfile, QoSHistoryPolicy,DurabilityPolicy
 import math
@@ -26,7 +27,7 @@ class DistanceVerifier(Node):
         # self.declare_parameter("angle", rclpy.Parameter.Type.DOUBLE)
 
         self.yabloc_path_subscription = self.create_subscription(
-            CarlaEgoVehicleInfo,
+            PoseStamped,
             "/localization/validation/path/pf",
             self.yabloc_path_listener_callback,
             QoSProfile(
@@ -36,7 +37,7 @@ class DistanceVerifier(Node):
 
         )
         self.carla_path_subscription = self.create_subscription(
-            CarlaEgoVehicleStatus,
+            PoseStamped,
             "/groundtruth_pose",
             self.carla_path_listener_callback,
             1,

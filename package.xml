@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>velocity_receiver</name>
+  <name>distance_verifier</name>
   <version>0.0.0</version>
   <description>This is a package for matching carla message type and autoware message type.</description>
   <maintainer email="allan098792@gmail.com">allan098792</maintainer>
