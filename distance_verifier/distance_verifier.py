@@ -15,7 +15,7 @@ from geometry_msgs.msg import (
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 # from autoware_auto_vehicle_msgs.msg import VelocityReport
-from carla_msgs.msg import CarlaEgoVehicleInfo,CarlaEgoVehicleStatus
+# from carla_msgs.msg import CarlaEgoVehicleInfo,CarlaEgoVehicleStatus
 from rclpy.qos import QoSReliabilityPolicy, QoSProfile, QoSHistoryPolicy,DurabilityPolicy
 import math
 import matplotlib.pyplot as plt
@@ -62,6 +62,9 @@ class DistanceVerifier(Node):
         self.clock = 0
         self.time = []
 
+        self.ade = None
+        self.fde = None
+
         timer_period = 0.1
         self.timer = self.create_timer(timer_period, self.timer_callback)
 
@@ -77,7 +80,7 @@ class DistanceVerifier(Node):
     def timer_callback(self):
         
         if self.image is not None:
-            self.image_publisher.publish(self.out_report)
+            self.image_publisher.publish(self.image)
 
     def calculate_difference(self):
         x_diff = self.prediction.x - self.groundtruth.x
@@ -97,10 +100,11 @@ class DistanceVerifier(Node):
     def update_path_position(self):
         if self.groundtruth is None or self.prediction is None:
             return
-        if self.difference == self.calculate_difference(): 
+        diff = self.calculate_difference()
+        if self.difference == diff: 
             return
         else:
-            self.difference = self.calculate_difference()
+            self.difference = diff
             self.differences.append(self.difference)
             self.clock+=1
             self.time.append(self.clock)
