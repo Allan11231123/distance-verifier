@@ -20,6 +20,7 @@ from rclpy.qos import QoSReliabilityPolicy, QoSProfile, QoSHistoryPolicy,Durabil
 import math
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.spatial.distance import cdist
 
 class DistanceVerifier(Node):
     def __init__(self):
@@ -62,6 +63,8 @@ class DistanceVerifier(Node):
         self.clock = 0
         self.time = []
 
+        self.groundtruths = []
+        self.predictions = []
         self.ade = None
         self.fde = None
 
@@ -81,6 +84,7 @@ class DistanceVerifier(Node):
         
         if self.image is not None:
             self.image_publisher.publish(self.image)
+        
 
     def calculate_difference(self):
         x_diff = self.prediction.x - self.groundtruth.x
@@ -106,8 +110,17 @@ class DistanceVerifier(Node):
         else:
             self.difference = diff
             self.differences.append(self.difference)
+            self.groundtruths.append(self.groundtruth)
+            self.predictions.append(self.prediction)
             self.clock+=1
             self.time.append(self.clock)
+            self.calculate_ade()
+            self.calculate_fde()
+    
+    def calculate_ade(self):
+        self.ade = np.mean(cdist(self.predictions,self.groundtruths))
+    def calculate_fde(self):
+        self.fde = np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:])
 
 
 def main():
