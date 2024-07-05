@@ -12,6 +12,7 @@ from geometry_msgs.msg import (
     TransformStamped,
     Quaternion,
 )
+from std_msgs import Float32
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 # from autoware_auto_vehicle_msgs.msg import VelocityReport
@@ -52,7 +53,22 @@ class DistanceVerifier(Node):
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             ),
         )
-
+        self.ade_publisher = self.create_publisher(
+            Float32,
+            "/ade_value",
+            QoSProfile(
+                depth=10,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
+        )
+        self.fde_publisher = self.create_publisher(
+            Float32,
+            "/fde_value",
+            QoSProfile(
+                depth=10,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
+        )
 
         self.groundtruth = None
         self.prediction = None
@@ -81,9 +97,12 @@ class DistanceVerifier(Node):
         self.update_path_position()
 
     def timer_callback(self):
-        
         if self.image is not None:
             self.image_publisher.publish(self.image)
+        if self.ade is not None:
+            self.ade_publisher.publish(self.ade)
+        if self.fde is not None:
+            self.fde_publisher.publish(self.fde)
         
 
     def calculate_difference(self):
@@ -118,9 +137,13 @@ class DistanceVerifier(Node):
             self.calculate_fde()
     
     def calculate_ade(self):
-        self.ade = np.mean(cdist(self.predictions,self.groundtruths))
+        ade_value = Float32()
+        ade_value.data = np.mean(cdist(self.predictions,self.groundtruths))
+        self.ade = ade_value
     def calculate_fde(self):
-        self.fde = np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:])
+        fde_value = Float32()
+        fde_value.data = np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:])
+        self.fde = fde_value
 
 
 def main():
