@@ -12,7 +12,8 @@ from geometry_msgs.msg import (
     TransformStamped,
     Quaternion,
 )
-from std_msgs import Float32
+from nav_msgs.msg import Path
+from std_msgs.msg import Float32,String
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 # from autoware_auto_vehicle_msgs.msg import VelocityReport
@@ -22,6 +23,7 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.spatial.distance import cdist
+import cv2
 
 class DistanceVerifier(Node):
     def __init__(self):
@@ -29,13 +31,10 @@ class DistanceVerifier(Node):
         # self.declare_parameter("angle", rclpy.Parameter.Type.DOUBLE)
 
         self.yabloc_path_subscription = self.create_subscription(
-            PoseStamped,
+            Path,
             "/localization/validation/path/pf",
             self.yabloc_path_listener_callback,
-            QoSProfile(
-                depth=10,
-                durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            ),
+            1,
 
         )
         self.carla_path_subscription = self.create_subscription(
@@ -54,7 +53,7 @@ class DistanceVerifier(Node):
             ),
         )
         self.ade_publisher = self.create_publisher(
-            Float32,
+            String,
             "/ade_value",
             QoSProfile(
                 depth=10,
@@ -62,7 +61,7 @@ class DistanceVerifier(Node):
             ),
         )
         self.fde_publisher = self.create_publisher(
-            Float32,
+            String,
             "/fde_value",
             QoSProfile(
                 depth=10,
@@ -88,12 +87,14 @@ class DistanceVerifier(Node):
         self.timer = self.create_timer(timer_period, self.timer_callback)
 
     def yabloc_path_listener_callback(self, msg):
-        self.get_logger().info("catching prediction path position from yabloc")
-        self.prediction = msg.pose.position
+        # self.get_logger().info("catching prediction path position from yabloc")
+        self.prediction = msg.poses[0].pose.position
+        # print(self.prediction)
         self.update_path_position()
     def carla_path_listener_callback(self,msg):
-        self.get_logger().info("catching ground truth path position form rosbag")
+        # self.get_logger().info("catching ground truth path position form rosbag")
         self.groundtruth = msg.pose.position
+        # print(self.groundtruth)
         self.update_path_position()
 
     def timer_callback(self):
@@ -112,14 +113,26 @@ class DistanceVerifier(Node):
         return (x_diff**2 + y_diff**2 + z_diff**2)**(1/2)
     
     def generate_report_image(self):
-        fig, ax = plt.subplot()
+        fig, ax = plt.subplots()
         ax.plot(self.time,self.differences)
         fig.canvas.draw()
-        buf = fig.canvas.tostring_rgb()
-        cols, rows = fig.canvas.get_width_height()
-        image = np.frombuffer(buf,dtype=np.int8).reshape(rows,cols,3)
-        self.image = self.bridge.cv2_to_imgmsg(image,"bgr8")
-        
+        image = np.array(fig.canvas.renderer.buffer_rgba())
+        # buf = fig.canvas.tostring_rgb()
+        # cols, rows = fig.canvas.get_width_height()
+        # image = np.frombuffer(buf,dtype=np.int8).reshape(rows,cols,3)
+        self.image = self.bridge.cv2_to_imgmsg(cv2.cvtColor(image,cv2.COLOR_RGBA2BGR),"bgr8")
+        plt.close()
+    
+    def calculate_ade(self):
+        ade_value = String()
+        ade_value.data = str(self.difference)
+        # ade_value.data = np.mean(cdist(self.predictions,self.groundtruths))
+        self.ade = ade_value
+    def calculate_fde(self):
+        fde_value = String()
+        fde_value.data = np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:])
+        self.fde = fde_value    
+
     def update_path_position(self):
         if self.groundtruth is None or self.prediction is None:
             return
@@ -133,17 +146,10 @@ class DistanceVerifier(Node):
             self.predictions.append(self.prediction)
             self.clock+=1
             self.time.append(self.clock)
+            self.generate_report_image()
             self.calculate_ade()
-            self.calculate_fde()
+            # self.calculate_fde()
     
-    def calculate_ade(self):
-        ade_value = Float32()
-        ade_value.data = np.mean(cdist(self.predictions,self.groundtruths))
-        self.ade = ade_value
-    def calculate_fde(self):
-        fde_value = Float32()
-        fde_value.data = np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:])
-        self.fde = fde_value
 
 
 def main():
