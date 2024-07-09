@@ -110,7 +110,9 @@ class DistanceVerifier(Node):
         x_diff = self.prediction.x - self.groundtruth.x
         y_diff = self.prediction.y - self.groundtruth.y
         z_diff = self.prediction.z - self.groundtruth.z
-        return (x_diff**2 + y_diff**2 + z_diff**2)**(1/2)
+        diff_value = (x_diff**2 + y_diff**2 + z_diff**2)**(1/2)
+        # print("The difference between groundtruth and prediction pose is {}".format(diff_value))
+        return diff_value
     
     def generate_report_image(self):
         fig, ax = plt.subplots()
@@ -125,12 +127,12 @@ class DistanceVerifier(Node):
     
     def calculate_ade(self):
         ade_value = String()
-        ade_value.data = str(self.difference)
-        # ade_value.data = np.mean(cdist(self.predictions,self.groundtruths))
+        # ade_value.data = str(self.difference)
+        ade_value.data = str(np.mean(cdist(self.predictions,self.groundtruths)))
         self.ade = ade_value
     def calculate_fde(self):
         fde_value = String()
-        fde_value.data = np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:])
+        fde_value.data = str(np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:]))
         self.fde = fde_value    
 
     def update_path_position(self):
@@ -141,6 +143,7 @@ class DistanceVerifier(Node):
             return
         else:
             self.difference = diff
+            print("The difference between ground truth pose and prediction pose is {}.".format(self.difference))
             self.differences.append(self.difference)
             self.groundtruths.append(self.groundtruth)
             self.predictions.append(self.prediction)
