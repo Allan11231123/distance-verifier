@@ -87,7 +87,7 @@ class DistanceVerifier(Node):
         self.timer = self.create_timer(timer_period, self.timer_callback)
 
     def yabloc_path_listener_callback(self, msg):
-        self.prediction = msg.poses[0].pose.position
+        self.prediction = msg.poses[-1].pose.position
         # self.update_path_position()
     def carla_path_listener_callback(self,msg):
         self.groundtruth = msg.pose.position
