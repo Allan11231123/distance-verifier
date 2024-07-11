@@ -87,14 +87,10 @@ class DistanceVerifier(Node):
         self.timer = self.create_timer(timer_period, self.timer_callback)
 
     def yabloc_path_listener_callback(self, msg):
-        # self.get_logger().info("catching prediction path position from yabloc")
         self.prediction = msg.poses[0].pose.position
-        # print(self.prediction)
-        self.update_path_position()
+        # self.update_path_position()
     def carla_path_listener_callback(self,msg):
-        # self.get_logger().info("catching ground truth path position form rosbag")
         self.groundtruth = msg.pose.position
-        # print(self.groundtruth)
         self.update_path_position()
 
     def timer_callback(self):
@@ -138,6 +134,7 @@ class DistanceVerifier(Node):
     def update_path_position(self):
         if self.groundtruth is None or self.prediction is None:
             return
+        self.get_logger().info("Recieve ground truth position and calculate distance difference.")
         diff = self.calculate_difference()
         if self.difference == diff: 
             return
