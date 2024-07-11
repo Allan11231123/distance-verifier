@@ -123,8 +123,8 @@ class DistanceVerifier(Node):
     
     def calculate_ade(self):
         ade_value = String()
-        # ade_value.data = str(self.difference)
-        ade_value.data = str(np.mean(cdist(self.predictions,self.groundtruths)))
+        ade_value.data = str(self.difference)
+        # ade_value.data = str(np.mean(cdist(self.predictions,self.groundtruths)))
         self.ade = ade_value
     def calculate_fde(self):
         fde_value = String()
@@ -140,10 +140,10 @@ class DistanceVerifier(Node):
             return
         else:
             self.difference = diff
-            print("The difference between ground truth pose and prediction pose is {}.".format(self.difference))
+            self.get_logger().info("The difference between ground truth pose and prediction pose is {}.".format(self.difference))
             self.differences.append(self.difference)
-            self.groundtruths.append(self.groundtruth)
-            self.predictions.append(self.prediction)
+            self.groundtruths.append([self.groundtruth.x, self.groundtruth.y, self.groundtruth.z])
+            self.predictions.append([self.prediction.x, self.prediction.y, self.prediction.z])
             self.clock+=1
             self.time.append(self.clock)
             self.generate_report_image()
