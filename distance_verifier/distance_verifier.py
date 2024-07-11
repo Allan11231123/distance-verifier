@@ -1,25 +1,13 @@
 import rclpy
 from rclpy.node import Node
-import copy
-from geometry_msgs.msg import (
-    TwistWithCovariance,
-    PoseWithCovarianceStamped,
-    PoseWithCovariance,
-    Pose,
-    PoseStamped,
-    Twist,
-    Transform,
-    TransformStamped,
-    Quaternion,
-)
+from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
-from std_msgs.msg import Float32,String
+from std_msgs.msg import String
 from sensor_msgs.msg import Image
-from cv_bridge import CvBridge, CvBridgeError
+from cv_bridge import CvBridge
 # from autoware_auto_vehicle_msgs.msg import VelocityReport
 # from carla_msgs.msg import CarlaEgoVehicleInfo,CarlaEgoVehicleStatus
-from rclpy.qos import QoSReliabilityPolicy, QoSProfile, QoSHistoryPolicy,DurabilityPolicy
-import math
+from rclpy.qos import  QoSProfile, DurabilityPolicy
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.spatial.distance import cdist
@@ -35,7 +23,6 @@ class DistanceVerifier(Node):
             "/localization/validation/path/pf",
             self.yabloc_path_listener_callback,
             1,
-
         )
         self.carla_path_subscription = self.create_subscription(
             PoseStamped,
@@ -68,6 +55,14 @@ class DistanceVerifier(Node):
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             ),
         )
+        self.difference_publisher = self.create_publisher(
+            String,
+            "/difference_value",
+            QoSProfile(
+                depth=10,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
+        )
 
         self.groundtruth = None
         self.prediction = None
@@ -82,6 +77,7 @@ class DistanceVerifier(Node):
         self.predictions = []
         self.ade = None
         self.fde = None
+        self.difference_value = None
 
         timer_period = 0.1
         self.timer = self.create_timer(timer_period, self.timer_callback)
@@ -100,6 +96,8 @@ class DistanceVerifier(Node):
             self.ade_publisher.publish(self.ade)
         if self.fde is not None:
             self.fde_publisher.publish(self.fde)
+        if self.difference_value is not None:
+            self.difference_publisher.publish(self.difference_value)
         
 
     def calculate_difference(self):
@@ -123,13 +121,17 @@ class DistanceVerifier(Node):
     
     def calculate_ade(self):
         ade_value = String()
-        ade_value.data = str(self.difference)
+        ade_value.data = "=== ADE ===\n" + str(self.difference)
         # ade_value.data = str(np.mean(cdist(self.predictions,self.groundtruths)))
-        self.ade = ade_value
+        self.ade =  ade_value
     def calculate_fde(self):
         fde_value = String()
-        fde_value.data = str(np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:]))
+        fde_value.data = "=== FDE ===\n" + str(np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:]))
         self.fde = fde_value    
+    def generate_difference_value(self):
+        difference_value = String()
+        difference_value.data = "=== Distance Difference ===\n" + str(self.difference)
+        self.difference_value = difference_value
 
     def update_path_position(self):
         if self.groundtruth is None or self.prediction is None:
@@ -141,6 +143,7 @@ class DistanceVerifier(Node):
         else:
             self.difference = diff
             self.get_logger().info("The difference between ground truth pose and prediction pose is {}.".format(self.difference))
+            self.generate_difference_value()
             self.differences.append(self.difference)
             self.groundtruths.append([self.groundtruth.x, self.groundtruth.y, self.groundtruth.z])
             self.predictions.append([self.prediction.x, self.prediction.y, self.prediction.z])
