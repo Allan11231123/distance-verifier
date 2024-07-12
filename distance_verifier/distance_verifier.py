@@ -108,6 +108,17 @@ class DistanceVerifier(Node):
         # print("The difference between groundtruth and prediction pose is {}".format(diff_value))
         return diff_value
     
+    def save_image(self,name = None):
+        if self.image  is None:
+            self.get_logger.info("Can't save image, since there appears to be no image.")
+            return
+        image = self.bridge.imgmsg_to_cv2(self.image,"bgr8")
+        if name is not None:
+            cv2.imwrite(name,image)
+        else:
+            cv2.imwrite("distance_result.png",image)
+        self.get_logger.info("======== Image saved!!!!! ========")
+    
     def generate_report_image(self):
         fig, ax = plt.subplots()
         ax.plot(self.time,self.differences)
@@ -122,7 +133,7 @@ class DistanceVerifier(Node):
     def calculate_ade(self):
         ade_value = String()
         ade_value.data = "=== ADE ===\n" + str(self.difference)
-        # ade_value.data = str(np.mean(cdist(self.predictions,self.groundtruths)))
+        # ade_value.data = "=== ADE ===\n" + str(np.mean(cdist(self.predictions,self.groundtruths)))
         self.ade =  ade_value
     def calculate_fde(self):
         fde_value = String()
@@ -160,6 +171,7 @@ def main():
     distance_verifier = DistanceVerifier()
 
     rclpy.spin(distance_verifier)
+    distance_verifier.save_image("result.png")
     distance_verifier.destroy_node()
     rclpy.shutdown()
 
