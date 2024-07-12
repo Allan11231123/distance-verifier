@@ -113,14 +113,14 @@ class DistanceVerifier(Node):
     
     def save_image(self,name = None):
         if self.image  is None:
-            self.get_logger.info("Can't save image, since there appears to be no image.")
+            self.get_logger().info("Can't save image, since there appears to be no image.")
             return
         image = self.bridge.imgmsg_to_cv2(self.image,"bgr8")
         if name is not None:
             cv2.imwrite(name,image)
         else:
             cv2.imwrite("distance_result.png",image)
-        self.get_logger.info("======== Image saved!!!!! ========")
+        self.get_logger().info("======== Image saved!!!!! ========")
     
     def generate_report_image(self):
         fig, ax = plt.subplots()
