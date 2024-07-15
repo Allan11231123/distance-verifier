@@ -118,9 +118,10 @@ class DistanceVerifier(Node):
         image = self.bridge.imgmsg_to_cv2(self.image,"bgr8")
         if name is not None:
             cv2.imwrite(name,image)
+            self.get_logger().info("======== Image saved!!!!! ========")
         else:
             cv2.imwrite("distance_result.png",image)
-        self.get_logger().info("======== Image saved!!!!! ========")
+            self.get_logger().info("======== Image saved!!!!! ========")
     
     def generate_report_image(self):
         fig, ax = plt.subplots()
@@ -133,11 +134,13 @@ class DistanceVerifier(Node):
     def calculate_ade(self):
         ade_value = String()
         # ade_value.data = "=== ADE ===\n" + str(self.difference)
-        ade_value.data = "=== ADE ===\n" + str(np.mean(cdist(self.predictions,self.groundtruths)))
+        # ade_value.data = "=== ADE ===\n" + str(np.mean(cdist(self.predictions,self.groundtruths)))
+        ade_value.data = "=== ADE ===\n" + str(np.mean(self.differences))
+
         self.ade =  ade_value
     def calculate_fde(self):
         fde_value = String()
-        fde_value.data = "=== FDE ===\n" + str(np.linalg.norm(self.predictions[-1,:] - self.groundtruths[-1,:]))
+        fde_value.data = "=== FDE ===\n" + str(np.linalg.norm(self.predictions[-1] - self.groundtruths[-1]))
         self.fde = fde_value    
     def generate_difference_value(self):
         difference_value = String()
