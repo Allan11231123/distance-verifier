@@ -12,9 +12,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.spatial.distance import cdist
 import cv2
+import os
 
 class DistanceVerifier(Node):
-    def __init__(self):
+    def __init__(self,output_path):
         super().__init__("distance_verifier")
         # self.declare_parameter("angle", rclpy.Parameter.Type.DOUBLE)
 
@@ -73,7 +74,9 @@ class DistanceVerifier(Node):
         self.differences = []
         self.clock = 0
         self.time = []
-
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
+        self.output_path = output_path
         self.groundtruths = []
         self.predictions = []
         self.ade = None
@@ -99,7 +102,7 @@ class DistanceVerifier(Node):
         if self.difference_value is not None:
             self.difference_publisher.publish(self.difference_value)
         if self.checkpoint is not None and self.checkpoint==self.groundtruth:
-            self.save_image("result.png")
+            self.save_image(self.output_path+"result.png")
         else:
             self.checkpoint = self.groundtruth
         
@@ -122,6 +125,7 @@ class DistanceVerifier(Node):
         else:
             cv2.imwrite("distance_result.png",image)
             self.get_logger().info("======== Image saved!!!!! ========")
+        return
     
     def generate_report_image(self):
         fig, ax = plt.subplots()
@@ -130,22 +134,25 @@ class DistanceVerifier(Node):
         image = np.array(fig.canvas.renderer.buffer_rgba())
         self.image = self.bridge.cv2_to_imgmsg(cv2.cvtColor(image,cv2.COLOR_RGBA2BGR),"bgr8")
         plt.close()
+        return
     
     def calculate_ade(self):
         ade_value = String()
         # ade_value.data = "=== ADE ===\n" + str(self.difference)
         # ade_value.data = "=== ADE ===\n" + str(np.mean(cdist(self.predictions,self.groundtruths)))
         ade_value.data = "=== ADE ===\n" + str(np.mean(self.differences))
-
         self.ade =  ade_value
+        return
     def calculate_fde(self):
         fde_value = String()
         fde_value.data = "=== FDE ===\n" + str(np.linalg.norm(self.predictions[-1] - self.groundtruths[-1]))
-        self.fde = fde_value    
+        self.fde = fde_value 
+        return
     def generate_difference_value(self):
         difference_value = String()
         difference_value.data = "=== Distance Difference ===\n" + str(self.difference)
         self.difference_value = difference_value
+        return
 
     def update_path_position(self):
         if self.groundtruth is None or self.prediction is None:
@@ -169,7 +176,7 @@ class DistanceVerifier(Node):
 
 def main():
     rclpy.init()
-    distance_verifier = DistanceVerifier()
+    distance_verifier = DistanceVerifier("../../../output/")
 
     rclpy.spin(distance_verifier)
     distance_verifier.destroy_node()
