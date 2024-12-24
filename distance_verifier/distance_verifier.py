@@ -1,45 +1,37 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import Path
-from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-# from autoware_auto_vehicle_msgs.msg import VelocityReport
-# from carla_msgs.msg import CarlaEgoVehicleInfo,CarlaEgoVehicleStatus
-from rclpy.qos import  QoSProfile, DurabilityPolicy
+from rclpy.qos import QoSProfile, DurabilityPolicy
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.spatial.distance import cdist
+import csv
+import math
+import bisect
+import tf_transformations
 import cv2
-import os
+from std_msgs.msg import String
 
 class DistanceVerifier(Node):
-    def __init__(self,output_path):
+    def __init__(self):
         super().__init__("distance_verifier")
-        # self.declare_parameter("angle", rclpy.Parameter.Type.DOUBLE)
+
+        self.declare_parameter('file_name', "daytime")
 
         self.yabloc_path_subscription = self.create_subscription(
-            Path,
-            "/localization/validation/path/pf",
+            PoseStamped,
+            "/localization/pf/pose",
             self.yabloc_path_listener_callback,
             1,
         )
-        self.carla_path_subscription = self.create_subscription(
-            PoseStamped,
-            "/groundtruth_pose",
-            self.carla_path_listener_callback,
-            1,
+
+        self.lateral_publisher = self.create_publisher(
+            Image,
+            "/lateral_report",
+            QoSProfile(depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL),
         )
 
-        self.image_publisher = self.create_publisher(
-            Image,
-            "/difference_report",
-            QoSProfile(
-                depth=10,
-                durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            ),
-        )
         self.ade_publisher = self.create_publisher(
             String,
             "/ade_value",
@@ -48,140 +40,103 @@ class DistanceVerifier(Node):
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             ),
         )
-        self.fde_publisher = self.create_publisher(
-            String,
-            "/fde_value",
-            QoSProfile(
-                depth=10,
-                durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            ),
-        )
-        self.difference_publisher = self.create_publisher(
-            String,
-            "/difference_value",
-            QoSProfile(
-                depth=10,
-                durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            ),
-        )
 
-        self.groundtruth = None
-        self.checkpoint = None
-        self.prediction = None
-        self.difference = None
-        self.image = None
         self.bridge = CvBridge()
-        self.differences = []
-        self.clock = 0
-        self.time = []
-        if not os.path.exists(output_path):
-            os.makedirs(output_path)
-        self.output_path = output_path
-        self.groundtruths = []
-        self.predictions = []
-        self.ade = None
-        self.fde = None
-        self.difference_value = None
 
-        timer_period = 0.1
-        self.timer = self.create_timer(timer_period, self.timer_callback)
+        groundtruth_file_name = self.get_parameter('file_name').value
+        groundtruth_file_path = "config/" + groundtruth_file_name + "_ground_truth.csv"
+        self.ground_truth_data = self.load_ground_truth_data(groundtruth_file_path)
+        self.csv_file = open('lateral_error.csv', 'w', newline='')
+        self.csv_writer = csv.writer(self.csv_file)
+        self.csv_writer.writerow(['sec', 'nanosec', 'lateral'])
+
+        
+        self.laterals = []
+        self.time = []
+        self.clock = 0
+        self.laterals_image = None
+
+    def load_ground_truth_data(self, filename):
+        ground_truth = []
+        with open(filename, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                sec = int(row['sec'])
+                nanosec = int(row['nanosec'])
+                x = float(row['x'])
+                y = float(row['y'])
+                ground_truth.append((sec, nanosec, x, y))
+        return ground_truth
+
+    def interpolate_ground_truth(self, sec, nanosec):
+        target_time = sec + nanosec * 1e-9
+        times = [gt[0] + gt[1] * 1e-9 for gt in self.ground_truth_data]
+        idx = bisect.bisect_left(times, target_time)
+
+        if idx == 0 or idx >= len(times):
+            return None
+
+        t1, t2 = times[idx - 1], times[idx]
+        x1, y1 = self.ground_truth_data[idx - 1][2:4]
+        x2, y2 = self.ground_truth_data[idx][2:4]
+
+        ratio = (target_time - t1) / (t2 - t1)
+        x_interp = x1 + ratio * (x2 - x1)
+        y_interp = y1 + ratio * (y2 - y1)
+
+        return x_interp, y_interp
 
     def yabloc_path_listener_callback(self, msg):
-        self.prediction = msg.poses[-1].pose.position
-    def carla_path_listener_callback(self,msg):
-        self.groundtruth = msg.pose.position
-        self.update_path_position()
+        pred_x = msg.pose.position.x
+        pred_y = msg.pose.position.y
+        orientation_q = msg.pose.orientation
+        qx, qy, qz, qw = orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w
+        _, _, yaw_p = tf_transformations.euler_from_quaternion([qx, qy, qz, qw])
+        u_x = math.cos(yaw_p)
+        u_y = math.sin(yaw_p)
 
-    def timer_callback(self):
-        if self.image is not None:
-            self.image_publisher.publish(self.image)
-        if self.ade is not None:
-            self.ade_publisher.publish(self.ade)
-        if self.fde is not None:
-            self.fde_publisher.publish(self.fde)
-        if self.difference_value is not None:
-            self.difference_publisher.publish(self.difference_value)
-        if self.checkpoint is not None and self.checkpoint==self.groundtruth:
-            self.save_image(self.output_path+"result.png")
-        else:
-            self.checkpoint = self.groundtruth
-        
+        ground_truth_pos = self.interpolate_ground_truth(msg.header.stamp.sec, msg.header.stamp.nanosec)
+        if ground_truth_pos:
+            gt_x, gt_y = ground_truth_pos
+            lateral_error = self.calculate_lateral_error(pred_x, pred_y, gt_x, gt_y, u_x, u_y)
+            self.update_lateral_error(msg.header.stamp.sec, msg.header.stamp.nanosec, lateral_error)
 
-    def calculate_difference(self):
-        x_diff = self.prediction.x - self.groundtruth.x
-        y_diff = self.prediction.y - self.groundtruth.y
-        z_diff = self.prediction.z - self.groundtruth.z
-        diff_value = (x_diff**2 + y_diff**2 + z_diff**2)**(1/2)
-        return diff_value
-    
-    def save_image(self,name = None):
-        if self.image  is None:
-            self.get_logger().info("Can't save image, since there appears to be no image.")
-            return
-        image = self.bridge.imgmsg_to_cv2(self.image,"bgr8")
-        if name is not None:
-            cv2.imwrite(name,image)
-            self.get_logger().info("======== Image saved!!!!! ========")
-        else:
-            cv2.imwrite("distance_result.png",image)
-            self.get_logger().info("======== Image saved!!!!! ========")
-        return
-    
-    def generate_report_image(self):
+    def calculate_lateral_error(self, pred_x, pred_y, gt_x, gt_y, u_x, u_y):
+        x_diff = gt_x - pred_x
+        y_diff = gt_y - pred_y
+        lateral_error = x_diff * (-u_y) + y_diff * u_x
+        return lateral_error
+
+    def update_lateral_error(self, sec, nanosec, lateral_error):
+        self.laterals.append(lateral_error)
+        self.csv_writer.writerow([sec, nanosec, lateral_error])
+        self.clock += 1
+        self.time.append(self.clock)
+        self.generate_lateral_report_image()
+        difference_value = String()
+        difference_value.data = "=== Lateral ADE ===\n" + str(np.mean(self.laterals))
+        self.ade_publisher.publish(difference_value)
+
+
+    def generate_lateral_report_image(self):
         fig, ax = plt.subplots()
-        ax.plot(self.time,self.differences)
+        ax.plot(self.time, self.laterals, label="Lateral Error")
+        ax.set_title("Lateral Error Over Time")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Lateral Error (m)")
+        ax.legend()
         fig.canvas.draw()
         image = np.array(fig.canvas.renderer.buffer_rgba())
-        self.image = self.bridge.cv2_to_imgmsg(cv2.cvtColor(image,cv2.COLOR_RGBA2BGR),"bgr8")
+        self.laterals_image = self.bridge.cv2_to_imgmsg(cv2.cvtColor(image, cv2.COLOR_RGBA2BGR), "bgr8")
+        self.lateral_publisher.publish(self.laterals_image)
         plt.close()
-        return
-    
-    def calculate_ade(self):
-        ade_value = String()
-        # ade_value.data = "=== ADE ===\n" + str(self.difference)
-        # ade_value.data = "=== ADE ===\n" + str(np.mean(cdist(self.predictions,self.groundtruths)))
-        ade_value.data = "=== ADE ===\n" + str(np.mean(self.differences))
-        self.ade =  ade_value
-        return
-    def calculate_fde(self):
-        fde_value = String()
-        fde_value.data = "=== FDE ===\n" + str(np.linalg.norm(self.predictions[-1] - self.groundtruths[-1]))
-        self.fde = fde_value 
-        return
-    def generate_difference_value(self):
-        difference_value = String()
-        difference_value.data = "=== Distance Difference ===\n" + str(self.difference)
-        self.difference_value = difference_value
-        return
-
-    def update_path_position(self):
-        if self.groundtruth is None or self.prediction is None:
-            return
-        diff = self.calculate_difference()
-        if self.difference == diff: 
-            return
-        else:
-            self.difference = diff
-            self.generate_difference_value()
-            self.differences.append(self.difference)
-            self.groundtruths.append([self.groundtruth.x, self.groundtruth.y, self.groundtruth.z])
-            self.predictions.append([self.prediction.x, self.prediction.y, self.prediction.z])
-            self.clock+=1
-            self.time.append(self.clock)
-            self.generate_report_image()
-            self.calculate_ade()
-            # self.calculate_fde()
-    
-
 
 def main():
     rclpy.init()
-    distance_verifier = DistanceVerifier("../../../output/")
-
+    distance_verifier = DistanceVerifier()
     rclpy.spin(distance_verifier)
     distance_verifier.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == "__main__":
     main()
