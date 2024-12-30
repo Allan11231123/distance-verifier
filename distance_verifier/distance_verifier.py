@@ -6,6 +6,7 @@ from cv_bridge import CvBridge
 from rclpy.qos import QoSProfile, DurabilityPolicy
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import csv
 import math
 import bisect
@@ -44,7 +45,7 @@ class DistanceVerifier(Node):
         self.bridge = CvBridge()
 
         groundtruth_file_name = self.get_parameter('file_name').value
-        groundtruth_file_path = "config/" + groundtruth_file_name + "_ground_truth.csv"
+        groundtruth_file_path = os.path.dirname(os.path.realpath(__file__))+"/../config/" + groundtruth_file_name + "_ground_truth.csv"
         self.ground_truth_data = self.load_ground_truth_data(groundtruth_file_path)
         self.csv_file = open('lateral_error.csv', 'w', newline='')
         self.csv_writer = csv.writer(self.csv_file)
