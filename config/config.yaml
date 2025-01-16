@@ -1,0 +1,3 @@
+groundtruth_path: "config/daytime_groud_truth.csv"
+errorfile_path: "error.csv"
+    
