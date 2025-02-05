@@ -19,8 +19,17 @@ class DistanceVerifier(Node):
     def __init__(self):
         super().__init__("ade_metric")
 
-        groundtruth_path = config["groundtruth_path"]
-        errorfile_path = config["errorfile_path"]
+        self.declare_parameter("groundtruth_path","")
+        self.declare_parameter("errorfile_dir","")
+        self.declare_parameter("errorfile_filename","error.csv")
+        # groundtruth_path = config["groundtruth_path"]
+        # errorfile_path = config["errorfile_path"]
+        groundtruth_path = self.get_parameter("groundtruth_path").get_parameter_value().string_value
+        errorfile_dir = self.get_parameter("errorfile_dir").get_parameter_value().string_value
+        errorfile_filename = self.get_parameter("errorfile_filename").get_parameter_value().string_value
+        if not os.path.exists(errorfile_dir):
+            os.mkdir(errorfile_dir)
+        errorfile_path = os.path.join(errorfile_dir,errorfile_filename)
 
         # Subscribe to Pose data
         self.yabloc_path_subscription = self.create_subscription(
