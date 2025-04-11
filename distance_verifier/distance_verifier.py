@@ -13,12 +13,11 @@ import bisect
 import tf_transformations
 import cv2
 from std_msgs.msg import String
-import yaml
 
 class DistanceVerifier(Node):
     def __init__(self):
         super().__init__("ade_metric")
-
+        #TODO: remove the ground truth file from the current procedure
         self.declare_parameter("groundtruth_path","")
         self.declare_parameter("errorfile_dir","")
         self.declare_parameter("errorfile_filename","error.csv")
