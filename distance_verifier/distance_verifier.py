@@ -18,23 +18,31 @@ class DistanceVerifier(Node):
     def __init__(self):
         super().__init__("ade_metric")
         #TODO: remove the ground truth file from the current procedure
-        self.declare_parameter("groundtruth_path","")
-        self.declare_parameter("errorfile_dir","")
-        self.declare_parameter("errorfile_filename","error.csv")
+        # self.declare_parameter("groundtruth_path","")
+        # self.declare_parameter("errorfile_dir","")
+        # self.declare_parameter("errorfile_filename","error.csv")
         # groundtruth_path = config["groundtruth_path"]
         # errorfile_path = config["errorfile_path"]
-        groundtruth_path = self.get_parameter("groundtruth_path").get_parameter_value().string_value
-        errorfile_dir = self.get_parameter("errorfile_dir").get_parameter_value().string_value
-        errorfile_filename = self.get_parameter("errorfile_filename").get_parameter_value().string_value
-        if not os.path.exists(errorfile_dir):
-            os.mkdir(errorfile_dir)
-        errorfile_path = os.path.join(errorfile_dir,errorfile_filename)
+        # groundtruth_path = self.get_parameter("groundtruth_path").get_parameter_value().string_value
+        # errorfile_dir = self.get_parameter("errorfile_dir").get_parameter_value().string_value
+        # errorfile_filename = self.get_parameter("errorfile_filename").get_parameter_value().string_value
+        # if not os.path.exists(errorfile_dir):
+        #     os.mkdir(errorfile_dir)
+        # errorfile_path = os.path.join(errorfile_dir,errorfile_filename)
 
         # Subscribe to Pose data
         self.yabloc_path_subscription = self.create_subscription(
             PoseStamped,
             "/localization/pf/pose",
             self.yabloc_path_listener_callback,
+            1,
+        )
+
+        # Subscribe to the Ground Truth pose data
+        self.ground_truth_subscription = self.create_subscription(
+            PoseStamped,
+            "/groundtruth_pose",
+            self.groundtruth_callback,
             1,
         )
 
@@ -68,19 +76,102 @@ class DistanceVerifier(Node):
         self.bridge = CvBridge()
 
         # Load Ground Truth
-        self.ground_truth_data = self.load_ground_truth_data(groundtruth_path)
+        self.ground_truth_data = self.load_ground_truth_data(groundtruth_path) #TODO:change the way to evaluate the ground truth data
         
         # Create a CSV file to store the errors
-        self.csv_file = open(errorfile_path, 'w', newline='')
-        self.csv_writer = csv.writer(self.csv_file)
-        self.csv_writer.writerow(['sec', 'nsec', 'lateral', 'longitudinal', 'distance'])
+        # self.csv_file = open(errorfile_path, 'w', newline='')
+        # self.csv_writer = csv.writer(self.csv_file)
+        # self.csv_writer.writerow(['sec', 'nsec', 'lateral', 'longitudinal', 'distance'])
         
-        
+        # Ground truth
+        self.pre_position = None # Use invariant type for position storage, (x,y).
+        self.pre_timestamp = 0.0 # Used for store the timestamp from last ground truth pose data.
+        self.vector = None # Used for store the vector for further calculation, (dx,dy).
+
         self.laterals = []
         self.longitudinals = []
         self.distances = []
         self.time = []
         self.clock = 0
+
+    def yabloc_path_listener_callback(self, msg):
+        """
+        Yabloc path message callback function.
+        ---
+        This callback function is called when every prediction pose msg is received.
+        
+        ---
+        Argument: `msg`
+        -
+
+        - type: PoseStamped
+        - data structure:
+            - header: std_msgs/Header
+                - stamp: buildin_interfaces/Time
+                    - sec: int32
+                    - nanosec: int32
+                - frame_id: string
+            - pose: geometry_msgs/Pose
+                - position: geometry_msgs/Point
+                    - x: float64
+                    - y: float64
+                    - z: float64
+                - orientation: geometry_msgs/Quaternion
+                    - x: float64
+                    - y: float64
+                    - z: float64
+                    - w: float64
+        """
+        #TODO: the orientation of the pose message may not be necessary for calculation, ready to be removed. 
+        pred_x = msg.pose.position.x
+        pred_y = msg.pose.position.y
+
+        ground_truth_pos = self.interpolate_ground_truth(msg.header.stamp.sec, msg.header.stamp.nanosec)
+        if ground_truth_pos:
+            gt_x, gt_y = ground_truth_pos
+
+            # Calculate errors
+            lateral_error = self.calculate_lateral_error(pred_x, pred_y, gt_x, gt_y, u_x, u_y)
+            longitudinal_error = self.calculate_longitudinal_error(pred_x, pred_y, gt_x, gt_y, u_x, u_y)
+            distance_error = self.calculate_distance_error(pred_x, pred_y, gt_x, gt_y)
+
+            # Update errors
+            self.update_errors(msg.header.stamp.sec, msg.header.stamp.nanosec,
+                               lateral_error, longitudinal_error, distance_error)
+
+    def groundtruth_callback(self,msg):
+        """
+        Ground truth pose message callback function.
+        ---
+        This callback function is called when every ground truth pose msg is received.\n
+        This function mainly store the pose position from '/groundtruth_pose' topic,\
+         the stored ground truth will be further used for prediction error calculation.
+        ---
+        Argument: `msg`
+        -
+
+        - type: PoseStamped
+        - data structure:
+            - header: std_msgs/Header
+                - stamp: buildin_interfaces/Time
+                    - sec: int32
+                    - nanosec: int32
+                - frame_id: string
+            - pose: geometry_msgs/Pose
+                - position: geometry_msgs/Point
+                    - x: float64
+                    - y: float64
+                    - z: float64
+                - orientation: geometry_msgs/Quaternion
+                    - x: float64
+                    - y: float64
+                    - z: float64
+                    - w: float64
+        """
+        if self.pre_position is not None:
+            self.vector = tuple([msg.pose.position.x-self.pre_position[0], msg.pose.position.y-self.pre_position[1]])
+        self.pre_position = tuple([msg.pose.position.x,msg.pose.position.y])
+        self.pre_timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
     def load_ground_truth_data(self, filename):
         ground_truth = []
@@ -112,32 +203,6 @@ class DistanceVerifier(Node):
 
         return x_interp, y_interp
 
-    def yabloc_path_listener_callback(self, msg):
-
-        # Predicted position and orientation
-        pred_x = msg.pose.position.x
-        pred_y = msg.pose.position.y
-        orientation_q = msg.pose.orientation
-        qx, qy, qz, qw = orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w
-        _, _, yaw_p = tf_transformations.euler_from_quaternion([qx, qy, qz, qw])
-        
-        # Vehicle direction
-        u_x = math.cos(yaw_p)
-        u_y = math.sin(yaw_p)
-
-        ground_truth_pos = self.interpolate_ground_truth(msg.header.stamp.sec, msg.header.stamp.nanosec)
-        if ground_truth_pos:
-            gt_x, gt_y = ground_truth_pos
-
-            # Calculate errors
-            lateral_error = self.calculate_lateral_error(pred_x, pred_y, gt_x, gt_y, u_x, u_y)
-            longitudinal_error = self.calculate_longitudinal_error(pred_x, pred_y, gt_x, gt_y, u_x, u_y)
-            distance_error = self.calculate_distance_error(pred_x, pred_y, gt_x, gt_y)
-
-            # Update errors
-            self.update_errors(msg.header.stamp.sec, msg.header.stamp.nanosec,
-                               lateral_error, longitudinal_error, distance_error)
-    
     def calculate_lateral_error(self, pred_x, pred_y, gt_x, gt_y, u_x, u_y):
         x_diff = gt_x - pred_x
         y_diff = gt_y - pred_y
